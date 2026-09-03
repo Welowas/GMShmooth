@@ -1,4 +1,5 @@
-﻿using UndertaleModLib;
+﻿using System.Diagnostics;
+using UndertaleModLib;
 using UndertaleModLib.Compiler;
 using UndertaleModLib.Models;
 
@@ -6,32 +7,87 @@ namespace GMShmoothCli
 {
     internal class Program
     {
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
-            if (args.Length < 2 || args.Length > 3)
+            if (args.Length < 1 || args.Length > 2)
             {
-                Console.Error.Write("Invalid args");
-                Console.Error.Write("Usage: converterGMS.exe input output [worldObjectName]");
+                Console.Error.WriteLine("Invalid arguments.");
+                Console.WriteLine("Usage: GMShmooth.exe data.win [worldObjectName]");
+                Console.ReadKey();
                 Environment.Exit(1);
             }
-            string input = args[0];
-            string output = args[1];
-            string worldObjectName = "";
-            if (args.Length == 3)
+
+            string gameFilePath = args[0];
+            string worldObjectName = string.Empty;
+            if (args.Length == 2)
             {
-                worldObjectName = args[2];
+                worldObjectName = args[1];
             }
 
-            UndertaleData data = UndertaleIO.Read(new FileStream(input, FileMode.Open, FileAccess.Read));
-            if (data.Shaders.ByName(@"__SMOOTH_sh_pxUpscale") != null)
+            string extension = Path.GetExtension(gameFilePath).ToLower();
+            string dataWin = gameFilePath;
+            bool deleteOriginalExe = false;
+            if (extension == ".exe")
             {
-                Console.Error.Write("This game has already been injected with Plasma's Smoothing Mode");
+                if (Path.GetDirectoryName(gameFilePath) is string gameFolderPath)
+                {
+                    if (!File.Exists(dataWin = Path.Combine(gameFolderPath, "data.win")))
+                    {
+                        string extractionPath = Path.Combine(gameFolderPath, Path.GetFileNameWithoutExtension(gameFilePath));
+                        using Process? sevenZip = Process.Start(new ProcessStartInfo
+                        {
+                            FileName = Path.Combine(Directory.GetCurrentDirectory(), "7za.dll"),
+                            Arguments = "x \"" + gameFilePath + "\" -o\"" + extractionPath + "\" -y",
+                            RedirectStandardOutput = false,
+                            RedirectStandardError = false,
+                            UseShellExecute = false,
+                            CreateNoWindow = false
+                        });
+                        if (sevenZip is not null)
+                        {
+                            sevenZip.Start();
+                            await sevenZip.WaitForExitAsync();
+                            deleteOriginalExe = true;
+                        }
+
+                        dataWin = Path.Combine(extractionPath, "data.win");
+                    }
+                }
+                else
+                {
+                    Console.Error.WriteLine("Invalid file path.");
+                    Console.ReadKey();
+                    Environment.Exit(1);
+                }
+            }
+            else if (extension != ".win")
+            {
+                Console.Error.WriteLine("Invalid file format. Please provide a valid GameMaker Studio 1/2 data.win oder .exe file.");
+                Console.ReadKey();
+                Environment.Exit(1);
+            }
+
+            if (!File.Exists(dataWin))
+            {
+                Console.Error.WriteLine("data.win file was not found.");
+                Console.ReadKey();
+                Environment.Exit(1);
+            }
+
+            FileStream fs = new(dataWin, FileMode.Open, FileAccess.Read);
+            using UndertaleData data = UndertaleIO.Read(fs);
+            fs.Dispose();
+
+            if (data.Shaders.ByName("__SMOOTH_sh_pxUpscale") is not null)
+            {
+                Console.Error.WriteLine("This game has already been injected with Plasma's Smoothing Mode.");
+                Console.ReadKey();
                 Environment.Exit(1);
             }
             /// Shaders
-            UndertaleShader shader = new()
+            using UndertaleShader shader = new()
             {
-                Name = data.Strings.MakeString(@"__SMOOTH_sh_pxUpscale")
+                Name = data.Strings.MakeString("__SMOOTH_sh_pxUpscale")
             };
             if (!data.IsGameMaker2())
             {
@@ -127,42 +183,67 @@ namespace GMShmoothCli
                 "o_World",
                 "o_world",
                 "oWorld",
-                "world",
+                "oworld",
                 "World",
-                "oworld"
+                "world",
+                "objGame",
+                "objgame",
+                "obj_Game",
+                "obj_game",
+                "o_Game",
+                "o_game",
+                "oGame",
+                "ogame",
+                "Game",
+                "game",
+                "objGameManager",
+                "objgamemanager",
+                "obj_GameManager",
+                "obj_gamemanager",
+                "o_GameManager",
+                "o_gamemanager",
+                "oGameManager",
+                "ogamemanager",
+                "GameManager",
+                "gamemanager"
             ];
             UndertaleGameObject? world = null;
             foreach (string worldString in potentialWorldStrings)
             {
-                if (worldString == "")
+                if (worldString == string.Empty)
                 {
                     continue;
                 }
                 world = data.GameObjects.ByName(worldString);
-                if (world != null)
+                if (world is not null)
                 {
                     break;
                 }
             }
-            if (world == null)
+            if (world is null)
             {
-                Console.Error.Write("Unable to find the world object");
+                Console.Error.WriteLine("Unable to find the world object.");
+                Console.WriteLine("Open the data.win with UndertaleModTool and find the name of the persistent world object managing everything.");
+                Console.WriteLine("Usage: GMShmooth.exe data.win [worldObjectName]");
+                Console.ReadKey();
                 Environment.Exit(1);
             }
 
             CodeImportGroup cig = new(data);
+            string gmlEventCodeStart = """
+                /*"/*'/**/
+                /// PLASMA_SMOOTH
+
+                """;
             string defaultSmoothRemovalCode;
             if (!data.IsGameMaker2())
             {
-                defaultSmoothRemovalCode = """
-                    /*"/*'/**/
-                    /// PLASMA_SMOOTH
+                defaultSmoothRemovalCode = gmlEventCodeStart + """
                     texture_set_interpolation(false);
+
                     """;
 
-                cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.PostDraw, data), """
-                    /*"/*'/**/
-                    /// PLASMA_SMOOTH
+                cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.PostDraw, data), gmlEventCodeStart + """
                     var __SMOOTH_windowWidth = window_get_width();
                     var __SMOOTH_windowHeight = window_get_height();
 
@@ -198,120 +279,136 @@ namespace GMShmoothCli
                     }
 
                     draw_enable_alphablend(true);
+
                     """);
             }
             else
             {
-                defaultSmoothRemovalCode = """
-                    /*"/*'/**/
-                    /// PLASMA_SMOOTH
+                defaultSmoothRemovalCode = gmlEventCodeStart + """
                     gpu_set_texfilter(false);
+
                     """;
 
-                cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.PostDraw, data), """
-                    /*"/*'/**/
-                    var windowWidth = window_get_width();
-                    var windowHeight = window_get_height();
+                string gms2PostDraw;
+                if (data.IsVersionAtLeast(2, 3))
+                {
+                    gms2PostDraw = """
+                        var __SMOOTH_windowWidth = window_get_width();
+                        var __SMOOTH_windowHeight = window_get_height();
+                        
+                        var __SMOOTH_aspectRatio = __SMOOTH_windowWidth / __SMOOTH_windowHeight;
+                        var __SMOOTH_aspectRatioRatio = __SMOOTH_aspectRatio / (800/608);
+                        
+                        var __SMOOTH_pixelScaling = (__SMOOTH_aspectRatioRatio < 1 && __SMOOTH_windowWidth mod 800 != 0) || (__SMOOTH_aspectRatioRatio > 1 && __SMOOTH_windowHeight mod 608 != 0) || (__SMOOTH_windowWidth mod 800 != 0 && __SMOOTH_windowHeight mod 608 != 0);
+                        
+                        gpu_set_texrepeat(false);
+                        gpu_set_blendenable(false);
+                        
+                        if(__SMOOTH_pixelScaling){
+                            gpu_set_texfilter(true);
+                            shader_set(__SMOOTH_sh_pxUpscale);
+                        }  
+                        
+                        if(__SMOOTH_aspectRatioRatio < 1){
+                            var __SMOOTH_canvasHeight = __SMOOTH_windowWidth*608/800;
+                            var __SMOOTH_vertOutPixels = (__SMOOTH_windowHeight - __SMOOTH_canvasHeight) / 2;
+                            shader_set_uniform_f(__SMOOTH_u_texelsPerPixel, 800./__SMOOTH_windowWidth, 608./__SMOOTH_canvasHeight);
+                            draw_surface_stretched(application_surface, 0, __SMOOTH_vertOutPixels, __SMOOTH_windowWidth, __SMOOTH_canvasHeight);
+                        }
+                        else{
+                            var __SMOOTH_canvasWidth = __SMOOTH_windowHeight*800/608;
+                            var __SMOOTH_horOutPixels = (__SMOOTH_windowWidth - __SMOOTH_canvasWidth) / 2;
+                            shader_set_uniform_f(__SMOOTH_u_texelsPerPixel, 800./__SMOOTH_canvasWidth, 608./__SMOOTH_windowHeight);
+                            draw_surface_stretched(application_surface, __SMOOTH_horOutPixels, 0, __SMOOTH_canvasWidth, __SMOOTH_windowHeight);
+                        }
+                        
+                        if(__SMOOTH_pixelScaling){
+                            shader_reset();
+                            gpu_set_texfilter(false);
+                        }
+                        
+                        gpu_set_blendenable(true);
 
-                    var aspectRatio = windowWidth / windowHeight;
-                    var aspectRatioRatio = aspectRatio / (800/608);
+                        """;
+                }
+                else
+                {
+                    gms2PostDraw = """
+                        var __SMOOTH_windowWidth = window_get_width();
+                        var __SMOOTH_windowHeight = window_get_height();
+                        var __SMOOTH_guiWidth = display_get_gui_width();
+                        var __SMOOTH_guiHeight = display_get_gui_height();
+                        
+                        var __SMOOTH_aspectRatio = __SMOOTH_windowWidth / __SMOOTH_windowHeight;
+                        var __SMOOTH_aspectRatioRatio = __SMOOTH_aspectRatio / (800/608);
+                        
+                        var __SMOOTH_pixelScaling = (__SMOOTH_aspectRatioRatio < 1 && __SMOOTH_windowWidth mod 800 != 0) || (__SMOOTH_aspectRatioRatio > 1 && __SMOOTH_windowHeight mod 608 != 0) || (__SMOOTH_windowWidth mod 800 != 0 && __SMOOTH_windowHeight mod 608 != 0);
+                        
+                        gpu_set_texrepeat(false);
+                        gpu_set_blendenable(false);
+                        
+                        if(__SMOOTH_pixelScaling){
+                            gpu_set_texfilter(true);
+                            shader_set(__SMOOTH_sh_pxUpscale);
+                        }  
+                        
+                        if(__SMOOTH_aspectRatioRatio < 1){
+                            var __SMOOTH_canvasHeight = __SMOOTH_windowWidth*608/800;
+                            var __SMOOTH_canvasHeightStretched = __SMOOTH_guiWidth*608/800;
+                            var __SMOOTH_vertOutPixels = (__SMOOTH_guiHeight - __SMOOTH_canvasHeightStretched) / 2;
+                            shader_set_uniform_f(__SMOOTH_u_texelsPerPixel, 800./__SMOOTH_windowWidth, 608./__SMOOTH_canvasHeight);
+                            draw_surface_stretched(application_surface, 0, __SMOOTH_vertOutPixels, __SMOOTH_guiWidth, __SMOOTH_canvasHeightStretched);
+                        }
+                        else{
+                            var __SMOOTH_canvasWidth = __SMOOTH_windowHeight*800/608;
+                            var __SMOOTH_canvasWidthStretched = __SMOOTH_guiHeight*800/608;
+                            var __SMOOTH_horOutPixels = (__SMOOTH_guiWidth - __SMOOTH_canvasWidthStretched) / 2;
+                            shader_set_uniform_f(__SMOOTH_u_texelsPerPixel, 800./__SMOOTH_canvasWidth, 608./__SMOOTH_windowHeight);
+                            draw_surface_stretched(application_surface, __SMOOTH_horOutPixels, 0, __SMOOTH_canvasWidthStretched, __SMOOTH_guiHeight);
+                        }
+                        
+                        if(__SMOOTH_pixelScaling){
+                            shader_reset();
+                            gpu_set_texfilter(false);
+                        }
+                        
+                        gpu_set_blendenable(true);
 
-                    var pixelScaling = (aspectRatioRatio < 1 && windowWidth mod 800 != 0) || (aspectRatioRatio > 1 && windowHeight mod 608 != 0) || (windowWidth mod 800 != 0 && windowHeight mod 608 != 0);
+                        """;
+                }
 
-                    gpu_set_texrepeat(false);
-                    gpu_set_blendenable(false);
-
-                    if(pixelScaling){
-                        gpu_set_texfilter(true);
-                        shader_set(__SMOOTH_sh_pxUpscale);
-                    }  
-
-                    if(aspectRatioRatio < 1){
-                        var canvasHeight = windowWidth*608/800;
-                        var vertOutPixels = (windowHeight - canvasHeight) / 2;
-                        shader_set_uniform_f(__SMOOTH_u_texelsPerPixel, 800./windowWidth, 608./canvasHeight);
-                        draw_surface_stretched(application_surface, 0, vertOutPixels, windowWidth, canvasHeight);
-                    }
-                    else{
-                        var canvasWidth = windowHeight*800/608;
-                        var horOutPixels = (windowWidth - canvasWidth) / 2;
-                        shader_set_uniform_f(__SMOOTH_u_texelsPerPixel, 800./canvasWidth, 608./windowHeight);
-                        draw_surface_stretched(application_surface, horOutPixels, 0, canvasWidth, windowHeight);
-                    }
-
-                    if(pixelScaling){
-                        shader_reset();
-                        gpu_set_texfilter(false);
-                    }
-
-                    gpu_set_blendenable(true);
-
-
-                    /*
-                    /// PLASMA_SMOOTH
-                    var __SMOOTH_windowWidth = window_get_width();
-                    var __SMOOTH_windowHeight = window_get_height();
-                    var __SMOOTH_guiWidth = display_get_gui_width();
-                    var __SMOOTH_guiHeight = display_get_gui_height();
-
-                    var __SMOOTH_aspectRatio = __SMOOTH_windowWidth / __SMOOTH_windowHeight;
-                    var __SMOOTH_aspectRatioRatio = __SMOOTH_aspectRatio / (800/608);
-
-                    var __SMOOTH_pixelScaling = (__SMOOTH_aspectRatioRatio < 1 && __SMOOTH_windowWidth mod 800 != 0) || (__SMOOTH_aspectRatioRatio > 1 && __SMOOTH_windowHeight mod 608 != 0) || (__SMOOTH_windowWidth mod 800 != 0 && __SMOOTH_windowHeight mod 608 != 0);
-
-                    gpu_set_texrepeat(false);
-                    gpu_set_blendenable(false);
-
-                    if(__SMOOTH_pixelScaling){
-                        gpu_set_texfilter(true);
-                        shader_set(__SMOOTH_sh_pxUpscale);
-                    }  
-
-                    if(__SMOOTH_aspectRatioRatio < 1){
-                        var __SMOOTH_canvasHeight = __SMOOTH_windowWidth*608/800;
-                        var __SMOOTH_canvasHeightStretched = __SMOOTH_guiWidth*608/800;
-                        var __SMOOTH_vertOutPixels = (__SMOOTH_guiHeight - __SMOOTH_canvasHeightStretched) / 2;
-                        shader_set_uniform_f(__SMOOTH_u_texelsPerPixel, 800./__SMOOTH_windowWidth, 608./__SMOOTH_canvasHeight);
-                        draw_surface_stretched(application_surface, 0, __SMOOTH_vertOutPixels, __SMOOTH_guiWidth, __SMOOTH_canvasHeightStretched);
-                    }
-                    else{
-                        var __SMOOTH_canvasWidth = __SMOOTH_windowHeight*800/608;
-                        var __SMOOTH_canvasWidthStretched = __SMOOTH_guiHeight*800/608;
-                        var __SMOOTH_horOutPixels = (__SMOOTH_guiWidth - __SMOOTH_canvasWidthStretched) / 2;
-                        shader_set_uniform_f(__SMOOTH_u_texelsPerPixel, 800./__SMOOTH_canvasWidth, 608./__SMOOTH_windowHeight);
-                        draw_surface_stretched(application_surface, __SMOOTH_horOutPixels, 0, __SMOOTH_canvasWidthStretched, __SMOOTH_guiHeight);
-                    }
-
-                    if(__SMOOTH_pixelScaling){
-                        shader_reset();
-                        gpu_set_texfilter(false);
-                    }
-
-                    gpu_set_blendenable(true);
-                    */
-
-                    """);
+                cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.PostDraw, data), gmlEventCodeStart + gms2PostDraw);
             }
-            cig.QueueAppend(world.EventHandlerFor(EventType.Create, data), """
-                /*"/*'/**/
-                /// PLASMA_SMOOTH
+            cig.QueueAppend(world.EventHandlerFor(EventType.Create, data), gmlEventCodeStart + """
                 __SMOOTH_u_texelsPerPixel = shader_get_uniform(__SMOOTH_sh_pxUpscale,"u_texelsPerPixel");
+
                 """);
-            cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.PreDraw, data), @defaultSmoothRemovalCode);
-            cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.DrawBegin, data), @defaultSmoothRemovalCode);
-            cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.Draw, data), @defaultSmoothRemovalCode);
-            cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.DrawEnd, data), @defaultSmoothRemovalCode + """
-                
+            cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.PreDraw, data), defaultSmoothRemovalCode);
+            cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.DrawBegin, data), defaultSmoothRemovalCode);
+            cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.Draw, data), defaultSmoothRemovalCode);
+            cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.DrawEnd, data), defaultSmoothRemovalCode + """
                 application_surface_draw_enable(false);
+
                 """);
-            cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.DrawGUIBegin, data), @defaultSmoothRemovalCode);
-            cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.DrawGUI, data), @defaultSmoothRemovalCode);
-            cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.DrawGUIEnd, data), @defaultSmoothRemovalCode);
+            cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.DrawGUIBegin, data), defaultSmoothRemovalCode);
+            cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.DrawGUI, data), defaultSmoothRemovalCode);
+            cig.QueueAppend(world.EventHandlerFor(EventType.Draw, EventSubtypeDraw.DrawGUIEnd, data), defaultSmoothRemovalCode);
             cig.Import();
 
             /// Recompile
-            UndertaleIO.Write(new FileStream(output, FileMode.Create), data);
+            File.Move(dataWin, Path.ChangeExtension(dataWin, ".backup.win"));
+            fs = new(dataWin, FileMode.Create);
+            UndertaleIO.Write(fs, data);
+            fs.Dispose();
+            world.Dispose();
+
+            if (deleteOriginalExe)
+            {
+                File.Delete(gameFilePath);
+            }
+
             Console.WriteLine("Success!");
+            Console.ReadKey();
         }
     }
 }
