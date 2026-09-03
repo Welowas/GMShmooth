@@ -8,6 +8,7 @@
     <File Path=".gitmodules" />
   </Folder>
   <Project Path="GMShmoothCli/GMShmoothCli.csproj" />
+  <Project Path="GMShmoothGui/GMShmoothGui.csproj" Id="322a10ab-8a62-4851-a884-199a52d06785" />
   <Project Path="Underanalyzer/Underanalyzer/Underanalyzer.csproj" />
   <Project Path="UndertaleModLib/UndertaleModLib.csproj">
     <Platform Solution="*|x64" Project="x64" />
