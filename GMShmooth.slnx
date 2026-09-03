@@ -5,6 +5,7 @@
   </Configurations>
   <Folder Name="/Solution Items/">
     <File Path=".gitignore" />
+    <File Path=".gitmodules" />
   </Folder>
   <Project Path="GMShmoothCli/GMShmoothCli.csproj" />
   <Project Path="Underanalyzer/Underanalyzer/Underanalyzer.csproj" />
