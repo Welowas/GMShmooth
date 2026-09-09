@@ -5,15 +5,14 @@ using UndertaleModLib.Models;
 
 namespace GMShmoothCli
 {
-    internal class Program
+    public class Program
     {
-        static async Task Main(string[] args)
+        public static async Task Main(string[] args)
         {
             if (args.Length < 1 || args.Length > 2)
             {
                 Console.Error.WriteLine("Invalid arguments.");
                 Console.WriteLine("Usage: GMShmooth.exe data.win [worldObjectName]");
-                Console.ReadKey();
                 Environment.Exit(1);
             }
 
@@ -56,21 +55,18 @@ namespace GMShmoothCli
                 else
                 {
                     Console.Error.WriteLine("Invalid file path.");
-                    Console.ReadKey();
                     Environment.Exit(1);
                 }
             }
             else if (extension != ".win")
             {
                 Console.Error.WriteLine("Invalid file format. Please provide a valid GameMaker Studio 1/2 data.win oder .exe file.");
-                Console.ReadKey();
                 Environment.Exit(1);
             }
 
             if (!File.Exists(dataWin))
             {
                 Console.Error.WriteLine("data.win file was not found.");
-                Console.ReadKey();
                 Environment.Exit(1);
             }
 
@@ -81,7 +77,6 @@ namespace GMShmoothCli
             if (data.Shaders.ByName("__SMOOTH_sh_pxUpscale") is not null)
             {
                 Console.Error.WriteLine("This game has already been injected with Plasma's Smoothing Mode.");
-                Console.ReadKey();
                 Environment.Exit(1);
             }
             /// Shaders
@@ -225,7 +220,6 @@ namespace GMShmoothCli
                 Console.Error.WriteLine("Unable to find the world object.");
                 Console.WriteLine("Open the data.win with UndertaleModTool and find the name of the persistent world object managing everything.");
                 Console.WriteLine("Usage: GMShmooth.exe data.win [worldObjectName]");
-                Console.ReadKey();
                 Environment.Exit(1);
             }
 
@@ -408,7 +402,6 @@ namespace GMShmoothCli
             }
 
             Console.WriteLine("Success!");
-            Console.ReadKey();
         }
     }
 }

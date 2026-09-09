@@ -1,25 +1,13 @@
-﻿using Microsoft.Win32;
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
+﻿using GMShmoothCli;
+using Microsoft.Win32;
 using System.IO;
-using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Ink;
-using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 
-namespace GMSmooth
+namespace GMShmoothGui
 {
     /// <summary>
     /// Interaktionslogik für MainWindow.xaml
@@ -27,20 +15,27 @@ namespace GMSmooth
     public partial class MainWindow : Window
     {
         public Random Rand;
+
         private readonly DispatcherTimer _animationTimer;
         private readonly double _animationTick;
-        private MediaPlayer _mediaPlayer;
-        private List<Rectangle> _rectangles;
-        private Color[] _rectangleColors;
+        private readonly MediaPlayer _mediaPlayer;
+        private readonly List<Rectangle> _rectangles;
+        private readonly Color[] _rectangleColors;
         private byte _currentRectangleColor;
-        private List<double> _rectanglesX;
-        private List<double> _rectanglesY;
-        private List<double> _rectanglesAngle;
-        private uint _rectangleSpawnDelay;
+        private readonly List<double> _rectanglesX;
+        private readonly List<double> _rectanglesY;
+        private readonly List<double> _rectanglesAngle;
+        private readonly uint _rectangleSpawnDelay;
         private uint _currentRectangleSpawnDelay;
 
         public MainWindow()
         {
+            string[] args = Environment.GetCommandLineArgs();
+            if (args.Length > 1)
+            {
+                _ = Program.Main([..args.Skip(1)]);
+                Environment.Exit(0);
+            }
             InitializeComponent();
 
             Rand = new Random();
@@ -56,7 +51,7 @@ namespace GMSmooth
             _mediaPlayer.MediaEnded += MediaPlayer_MediaEnded;
             _mediaPlayer.Play();
 
-            _rectangles = new List<Rectangle>();
+            _rectangles = [];
             _rectangleColors = new Color[8];
             _rectangleColors[0] = Color.FromArgb(255, 184, 245, 232);
             _rectangleColors[1] = Color.FromArgb(255, 184, 237, 232);
@@ -67,14 +62,14 @@ namespace GMSmooth
             _rectangleColors[6] = Color.FromArgb(255, 184, 216, 232);
             _rectangleColors[7] = Color.FromArgb(255, 184, 237, 232);
             _currentRectangleColor = 0;
-            _rectanglesX = new List<double>();
-            _rectanglesY = new List<double>();
-            _rectanglesAngle = new List<double>();
+            _rectanglesX = [];
+            _rectanglesY = [];
+            _rectanglesAngle = [];
             _rectangleSpawnDelay = 60;
             _currentRectangleSpawnDelay = 0;
         }
 
-        private void AnimationTimer_Tick(object sender, EventArgs e)
+        private void AnimationTimer_Tick(object? sender, EventArgs e)
         {
             if (_currentRectangleSpawnDelay == 0)
             {
@@ -89,10 +84,10 @@ namespace GMSmooth
                 _rectanglesX.Add(_bgCanvas.ActualWidth / 2);
                 _rectanglesY.Add(_bgCanvas.ActualHeight / 2);
                 _rectanglesAngle.Add(0);
-                Canvas.SetLeft(_rectangles[_rectangles.Count - 1], _rectanglesX[_rectangles.Count - 1]);
-                Canvas.SetTop(_rectangles[_rectangles.Count - 1], _rectanglesY[_rectangles.Count - 1]);
-                Panel.SetZIndex(_rectangles[_rectangles.Count - 1], -1);
-                _bgCanvas.Children.Add(_rectangles[_rectangles.Count - 1]);
+                Canvas.SetLeft(_rectangles[^1], _rectanglesX[_rectangles.Count - 1]);
+                Canvas.SetTop(_rectangles[^1], _rectanglesY[_rectangles.Count - 1]);
+                Panel.SetZIndex(_rectangles[^1], -1);
+                _bgCanvas.Children.Add(_rectangles[^1]);
                 if (_currentRectangleColor < _rectangleColors.Length - 1)
                 {
                     _currentRectangleColor++;
@@ -125,7 +120,7 @@ namespace GMSmooth
             }
         }
 
-        private void MediaPlayer_MediaEnded(object sender, EventArgs e)
+        private void MediaPlayer_MediaEnded(object? sender, EventArgs e)
         {
             _mediaPlayer.Position = TimeSpan.Zero;
             _mediaPlayer.Play();
@@ -145,27 +140,23 @@ namespace GMSmooth
             }
         }
 
-        private void ChooseFileButton_Click(object sender, RoutedEventArgs e)
+        private async void ChooseFileButton_Click(object sender, RoutedEventArgs e)
         {
-            OpenFileDialog openFileDialog = new OpenFileDialog
+            OpenFileDialog openFileDialog = new()
             {
-                Filter = "Both types (*.exe;*.win)|*.exe;*.win|GMS1/2 games (*.exe)|*.exe|data.win files (*.win)|*.win",
-                InitialDirectory = System.IO.Path.GetFullPath(System.IO.Path.Combine(Directory.GetCurrentDirectory(), @"..\..\"))
+                Filter = "Supported files (*.exe;*.win)|*.exe;*.win|GMS1/2 games (*.exe)|*.exe|data.win files (*.win)|*.win",
+                InitialDirectory = Directory.GetCurrentDirectory(),
+                Multiselect = true
             };
             if (openFileDialog.ShowDialog() == true)
             {
-                string fileType = openFileDialog.FileName.Substring(openFileDialog.FileName.LastIndexOf('.'));
-                if (fileType == ".exe")
+                try
                 {
-                    _chooseFileButton.Content = openFileDialog.FileName.Substring(0, openFileDialog.FileName.LastIndexOf(System.IO.Path.DirectorySeparatorChar));
+                    await Program.Main(openFileDialog.FileNames);
                 }
-                else if (fileType == ".win")
+                catch (Exception ex)
                 {
-
-                }
-                else
-                {
-                    throw new Exception("Invalid file type.");
+                    MessageBox.Show("An error occurred while processing the files.\n\n" + ex.GetType().Name + ":\n" + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }

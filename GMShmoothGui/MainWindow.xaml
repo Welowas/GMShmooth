@@ -1,16 +1,30 @@
-﻿<Window x:Class="GMSmooth.MainWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:GMSmooth"
-        mc:Ignorable="d"
-        Title="GMSmooth" Height="608" Width="800" WindowState="Normal">
+﻿<Window
+    x:Class="GMShmoothGui.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:local="clr-namespace:GMShmoothGui"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Title="GMShmooth"
+    Width="800" Height="608"
+    WindowState="Normal"
+    mc:Ignorable="d">
     <Grid>
-        <Canvas x:FieldModifier="private" Name="_bgCanvas">
-            <Button Name="_chooseFileButton" x:FieldModifier="private" Click="ChooseFileButton_Click" Content="Button" Canvas.Left="288" Canvas.Top="137"/>
-            <Button Canvas.Right="10" Canvas.Bottom="10" Content="🎵" x:FieldModifier="private" Name="_muteButton" Click="MuteButton_Click" HorizontalAlignment="Right" VerticalAlignment="Bottom"/>
-            <Line Canvas.Right="12" Canvas.Bottom="12" x:FieldModifier="private" HorizontalAlignment="Right" IsHitTestVisible="False" Name="_muteLine" Stroke="Red" StrokeThickness="1" VerticalAlignment="Bottom" Visibility="Hidden" X1="0" X2="15" Y1="15" Y2="0"/>
+        <Canvas Name="_bgCanvas" x:FieldModifier="private">
+            <Button
+                Name="_chooseFileButton"
+                Canvas.Left="288" Canvas.Top="137"
+                x:FieldModifier="private" Click="ChooseFileButton_Click" Content="Button"/>
+            <Button
+                Name="_muteButton"
+                Canvas.Right="10" Canvas.Bottom="10"
+                HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                x:FieldModifier="private" Click="MuteButton_Click" Content="🎵"/>
+            <Line
+                Name="_muteLine"
+                Canvas.Right="12" Canvas.Bottom="12"
+                HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                x:FieldModifier="private" IsHitTestVisible="False" Stroke="Red" StrokeThickness="1"
+                Visibility="Hidden" X1="0" X2="15" Y1="15"
+                Y2="0"/>
         </Canvas>
     </Grid>
 </Window>

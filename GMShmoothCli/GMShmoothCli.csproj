@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
 	<DebugType>embedded</DebugType>
 	<Product>GMShmooth</Product>
-	<VersionPrefix>0.1.0.1</VersionPrefix>
+	<VersionPrefix>0.1.0.2</VersionPrefix>
 	<Authors>Welowas</Authors>
 	<Copyright>Copyright ©  2026, licensed under GPLv3</Copyright>
   </PropertyGroup>
