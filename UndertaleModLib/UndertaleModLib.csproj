@@ -11,6 +11,7 @@
     <FileVersion>0.9.2.0</FileVersion>
     <DebugType>embedded</DebugType>
     <Platforms>AnyCPU;x64</Platforms>
+	<RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <RuntimeIdentifiers>win-x64;win-x86</RuntimeIdentifiers>
     <NeutralLanguage>en</NeutralLanguage>
     <ResourceLanguages>en</ResourceLanguages>
