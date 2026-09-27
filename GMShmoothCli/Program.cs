@@ -314,19 +314,22 @@ namespace GMShmoothCli
                 gmsData.GameObjects.Add(gmsImperishableObject);
 
                 CodeImportGroup cig = new(gmsData);
-                /*foreach (UndertaleCode gmsCode in gmsData.Code)
+                foreach (UndertaleCode gmsCode in gmsData.Code)
                 {
-                    cig.QueueFindReplace(gmsCode, "instance_deactivate_all(true);", """
-                        instance_deactivate_all(true);
-                        instance_activate_object(__SHMOOTH_objImperishable);
+                    if (gmsCode.ProjectExportable)
+                    {
+                        cig.QueueFindReplace(gmsCode, "instance_deactivate_all(true);", """
+                            instance_deactivate_all(true);
+                            instance_activate_object(__SHMOOTH_objImperishable);
 
-                        """);
-                    cig.QueueFindReplace(gmsCode, "instance_deactivate_all(false);", """
-                        instance_deactivate_all(false);
-                        instance_activate_object(__SHMOOTH_objImperishable);
+                            """);
+                        cig.QueueFindReplace(gmsCode, "instance_deactivate_all(false);", """
+                            instance_deactivate_all(false);
+                            instance_activate_object(__SHMOOTH_objImperishable);
 
-                        """);
-                }*/
+                            """);
+                    }
+                }
 
                 string defaultSmoothRemovalCode;
                 if (!gmsData.IsGameMaker2())
@@ -337,7 +340,9 @@ namespace GMShmoothCli
                         """;
 
                     cig.QueueAppend(gmsImperishableObject.EventHandlerFor(EventType.Destroy, gmsData), """
-                        instance_create(0, 0, __SHMOOTH_objImperishable);
+                        if (!__SHMOOTH_isDuplicate){
+                            instance_create(0, 0, object_index);
+                        }
 
                         """);
                     cig.QueueAppend(gmsImperishableObject.EventHandlerFor(EventType.Draw, EventSubtypeDraw.PostDraw, gmsData), """
@@ -396,7 +401,9 @@ namespace GMShmoothCli
                         """;
 
                     cig.QueueAppend(gmsImperishableObject.EventHandlerFor(EventType.Destroy, gmsData), """
-                        instance_create_depth(0, 0, 0, __SHMOOTH_objImperishable);
+                        if (!__SHMOOTH_isDuplicate){
+                            instance_create_depth(0, 0, 0, object_index);
+                        }
 
                         """);
                     string gms2PostDraw;
@@ -508,9 +515,17 @@ namespace GMShmoothCli
                     cig.QueueAppend(gmsImperishableObject.EventHandlerFor(EventType.Draw, EventSubtypeDraw.PostDraw, gmsData), gms2PostDraw);
                 }
                 cig.QueueAppend(gmsImperishableObject.EventHandlerFor(EventType.Create, gmsData), """
+                    __SHMOOTH_isDuplicate = false;
                     __SHMOOTH_uTexelsPerPixel = shader_get_uniform(__SHMOOTH_shPlasma, "u_texelsPerPixel");
                     __SHMOOTH_uvResolution = shader_get_uniform(__SHMOOTH_shPlasma, "uv_resolution");
                     __SHMOOTH_ufResolution = shader_get_uniform(__SHMOOTH_shPlasma, "uf_resolution");
+
+                    """);
+                cig.QueueAppend(gmsImperishableObject.EventHandlerFor(EventType.Other, EventSubtypeOther.RoomStart, gmsData), """
+                    if (instance_number(object_index) > 1){
+                        __SHMOOTH_isDuplicate = true;
+                        instance_destroy();
+                    }
 
                     """);
                 cig.QueueAppend(gmsImperishableObject.EventHandlerFor(EventType.Draw, EventSubtypeDraw.PreDraw, gmsData), defaultSmoothRemovalCode);
@@ -541,7 +556,7 @@ namespace GMShmoothCli
                 });
 
                 /// Recompile
-                File.Move(dataWinFilePath, Path.ChangeExtension(dataWinFilePath, ".backup.win"));
+                File.Move(dataWinFilePath, Path.ChangeExtension(dataWinFilePath, ".backup.win"), true);
                 FileStream writeStream = new(dataWinFilePath, FileMode.Create);
                 UndertaleIO.Write(writeStream, gmsData);
                 writeStream.Dispose();
