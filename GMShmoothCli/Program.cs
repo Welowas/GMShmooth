@@ -25,6 +25,8 @@ namespace GMShmoothCli
                     return;
                 }
 
+                Console.WriteLine("Fetching data.win file...");
+                Console.WriteLine();
                 string gameFilePath = args[0];
                 string gameFileExtension = Path.GetExtension(gameFilePath).ToLower();
                 bool deleteOriginalGameFile = false;
@@ -35,17 +37,30 @@ namespace GMShmoothCli
                     const string DataWinFileName = "data.win";
                     if (!File.Exists(dataWinFilePath = Path.Combine(gameFolderPath, DataWinFileName)))
                     {
+                        Console.WriteLine("data.win file was not found in the game's folder.");
                         string extractionPath = Path.Combine(gameFolderPath, Path.GetFileNameWithoutExtension(gameFilePath));
+                        Console.WriteLine("Attempting to extract it from the game's .exe file...");
                         using Process? sevenZip = Process.Start(new ProcessStartInfo
                         {
                             FileName = Path.Combine(AppContext.BaseDirectory, "7za.dll"),
-                            Arguments = "x \"" + gameFilePath + "\" -o\"" + extractionPath + "\" -y"
+                            ArgumentList = { "x", gameFilePath, "-o" + extractionPath, "-y" }
                         });
                         if (sevenZip is not null)
                         {
-                            sevenZip.Start();
                             await sevenZip.WaitForExitAsync();
                             Console.WriteLine();
+                            if (sevenZip.ExitCode == 0)
+                            {
+                                Console.WriteLine($"Successfully unzipped game into \"{extractionPath}\" folder.");
+                                Console.WriteLine();
+                            }
+                            else
+                            {
+                                Console.Error.WriteLine($"Failed to extract data.win from the game's .exe file.");
+                                Console.Error.WriteLine($"Exit code: {sevenZip.ExitCode}");
+                                Console.ReadKey();
+                                return;
+                            }
                             deleteOriginalGameFile = true;
                         }
 
@@ -72,15 +87,20 @@ namespace GMShmoothCli
                 }
 
                 /// Decompile
+                Console.WriteLine("data.win file has been located.");
+                Console.WriteLine("Decompiling data.win file...");
+                Console.WriteLine();
                 FileStream readStream = new(dataWinFilePath, FileMode.Open, FileAccess.Read);
                 UndertaleData gmsData = UndertaleIO.Read(readStream);
                 readStream.Dispose();
 
                 /// Shaders
+                Console.WriteLine("Injecting Plasma's pixel upscaling shader...");
+                Console.WriteLine();
                 IList<UndertaleShader> gmsShaders = gmsData.Shaders;
                 if (gmsShaders.ByName("__SHMOOTH_shPlasma") is not null)
                 {
-                    Console.Error.WriteLine("This game has already been injected with Shmoothing.");
+                    Console.Error.WriteLine("This game has already been applied with Shmoothing.");
                     Console.ReadKey();
                     return;
                 }
@@ -126,7 +146,7 @@ namespace GMShmoothCli
                             float4 pos : SV_POSITION;
                         };
 
-                        float2 uv_resolution;
+                        uniform float2 uv_resolution;
 
                         VS_OUTPUT main(VS_INPUT input)
                         {
@@ -152,8 +172,8 @@ namespace GMShmoothCli
                             float2 vTexcoord : TEXCOORD0;
                         };
 
-                        float2 u_texelsPerPixel;
-                        float2 uf_resolution;
+                        uniform float2 u_texelsPerPixel;
+                        uniform float2 uf_resolution;
 
                         float4 main(PS_INPUT input) : SV_Target
                         {
@@ -305,31 +325,52 @@ namespace GMShmoothCli
                 }
                 gmsShaders.Add(gmsPlasmaShader);
 
+                /// Scripts and Functions
+                Console.WriteLine("Rewiring instance deactivation functions...");
+                Console.WriteLine();
+                CodeImportGroup cig = new(gmsData);
+                foreach (string functionName in new string[] { "instance_deactivate_all", "instance_deactivate_object", "instance_deactivate_region", "instance_deactivate_layer" })
+                {
+                    UndertaleFunction? gmsFunction = gmsData.Functions.ByName(functionName);
+                    if (gmsFunction is not null)
+                    {
+                        UndertaleCode gmsCode = UndertaleCode.CreateEmptyEntry(gmsData, $"gml_Script_{functionName}");
+                        cig.QueueAppend(gmsCode, $$"""
+                        if (argument_count > 6){
+                            {{functionName}}(argument[0], argument[1], argument[2], argument[3], argument[4], argument[5], argument[6]);
+                        }
+                        else if (argument_count == 6){
+                            {{functionName}}(argument[0], argument[1], argument[2], argument[3], argument[4], argument[5]);
+                        }
+                        else if (argument_count > 1){
+                            {{functionName}}(argument[0], argument[1]);
+                        }
+                        else{
+                            {{functionName}}(argument[0]);
+                        }
+                        instance_activate_object(__SHMOOTH_objImperishable);
+
+                        """);
+
+                        gmsData.Scripts.Add(new()
+                        {
+                            Name = gmsFunction.Name,
+                            Code = gmsCode
+                        });
+                        gmsFunction.Name.Content = $"__SHMOOTH_{functionName}";
+                    }
+                }
+
                 /// Objects
+                Console.WriteLine("Injecting an imperishable shader control object...");
+                Console.WriteLine("(Let's name it ISCO because it sounds epic.)");
+                Console.WriteLine();
                 UndertaleGameObject gmsImperishableObject = new()
                 {
                     Name = gmsStrings.MakeString("__SHMOOTH_objImperishable"),
                     Persistent = true
                 };
                 gmsData.GameObjects.Add(gmsImperishableObject);
-
-                CodeImportGroup cig = new(gmsData);
-                foreach (UndertaleCode gmsCode in gmsData.Code)
-                {
-                    if (gmsCode.ProjectExportable)
-                    {
-                        cig.QueueFindReplace(gmsCode, "instance_deactivate_all(true);", """
-                            instance_deactivate_all(true);
-                            instance_activate_object(__SHMOOTH_objImperishable);
-
-                            """);
-                        cig.QueueFindReplace(gmsCode, "instance_deactivate_all(false);", """
-                            instance_deactivate_all(false);
-                            instance_activate_object(__SHMOOTH_objImperishable);
-
-                            """);
-                    }
-                }
 
                 string defaultSmoothRemovalCode;
                 if (!gmsData.IsGameMaker2())
@@ -362,12 +403,12 @@ namespace GMShmoothCli
                         texture_set_repeat(false);
                         draw_enable_alphablend(false);
 
-                        if(__SHMOOTH_pixelScaling){
+                        if (__SHMOOTH_pixelScaling){
                             texture_set_interpolation(true);
                             shader_set(__SHMOOTH_shPlasma);
                         }  
 
-                        if(__SHMOOTH_aspectRatioRatio < 1){
+                        if (__SHMOOTH_aspectRatioRatio < 1){
                             var __SHMOOTH_canvasHeight = __SHMOOTH_windowWidth*__SHMOOTH_applicationHeight/__SHMOOTH_applicationWidth;
                             var __SHMOOTH_vertOutPixels = (__SHMOOTH_windowHeight - __SHMOOTH_canvasHeight) / 2;
                             shader_set_uniform_f(__SHMOOTH_uTexelsPerPixel, __SHMOOTH_applicationWidth/__SHMOOTH_windowWidth, __SHMOOTH_applicationHeight/__SHMOOTH_canvasHeight);
@@ -384,7 +425,7 @@ namespace GMShmoothCli
                             draw_surface_stretched(application_surface, __SHMOOTH_horOutPixels, 0, __SHMOOTH_canvasWidth, __SHMOOTH_windowHeight);
                         }
 
-                        if(__SHMOOTH_pixelScaling){
+                        if (__SHMOOTH_pixelScaling){
                             shader_reset();
                             texture_set_interpolation(false);
                         }
@@ -426,12 +467,12 @@ namespace GMShmoothCli
                             gpu_set_texrepeat(false);
                             gpu_set_blendenable(false);
                         
-                            if(__SHMOOTH_pixelScaling){
+                            if (__SHMOOTH_pixelScaling){
                                 gpu_set_texfilter(true);
                                 shader_set(__SHMOOTH_shPlasma);
                             }  
                         
-                            if(__SHMOOTH_aspectRatioRatio < 1){
+                            if (__SHMOOTH_aspectRatioRatio < 1){
                                 var __SHMOOTH_canvasHeight = __SHMOOTH_windowWidth*__SHMOOTH_applicationHeight/__SHMOOTH_applicationWidth;
                                 var __SHMOOTH_vertOutPixels = (__SHMOOTH_windowHeight - __SHMOOTH_canvasHeight) / 2;
                                 shader_set_uniform_f(__SHMOOTH_uTexelsPerPixel, __SHMOOTH_applicationWidth/__SHMOOTH_windowWidth, __SHMOOTH_applicationHeight/__SHMOOTH_canvasHeight);
@@ -448,7 +489,7 @@ namespace GMShmoothCli
                                 draw_surface_stretched(application_surface, __SHMOOTH_horOutPixels, 0, __SHMOOTH_canvasWidth, __SHMOOTH_windowHeight);
                             }
                         
-                            if(__SHMOOTH_pixelScaling){
+                            if (__SHMOOTH_pixelScaling){
                                 shader_reset();
                                 gpu_set_texfilter(false);
                             }
@@ -478,12 +519,12 @@ namespace GMShmoothCli
                             gpu_set_texrepeat(false);
                             gpu_set_blendenable(false);
                         
-                            if(__SHMOOTH_pixelScaling){
+                            if (__SHMOOTH_pixelScaling){
                                 gpu_set_texfilter(true);
                                 shader_set(__SHMOOTH_shPlasma);
                             }  
                         
-                            if(__SHMOOTH_aspectRatioRatio < 1){
+                            if (__SHMOOTH_aspectRatioRatio < 1){
                                 var __SHMOOTH_canvasHeight = __SHMOOTH_windowWidth*__SHMOOTH_applicationHeight/__SHMOOTH_applicationWidth;
                                 var __SHMOOTH_canvasHeightStretched = __SHMOOTH_guiWidth*__SHMOOTH_applicationHeight/__SHMOOTH_applicationWidth;
                                 var __SHMOOTH_vertOutPixels = (__SHMOOTH_guiHeight - __SHMOOTH_canvasHeightStretched) / 2;
@@ -502,7 +543,7 @@ namespace GMShmoothCli
                                 draw_surface_stretched(application_surface, __SHMOOTH_horOutPixels, 0, __SHMOOTH_canvasWidthStretched, __SHMOOTH_guiHeight);
                             }
                         
-                            if(__SHMOOTH_pixelScaling){
+                            if (__SHMOOTH_pixelScaling){
                                 shader_reset();
                                 gpu_set_texfilter(false);
                             }
@@ -541,6 +582,8 @@ namespace GMShmoothCli
                 cig.Import();
 
                 /// Rooms
+                Console.WriteLine("Adding the ISCO to the first room...");
+                Console.WriteLine();
                 IList<UndertaleRoom> gmsRooms = gmsData.Rooms;
                 if (gmsRooms.Count < 1)
                 {
@@ -556,6 +599,8 @@ namespace GMShmoothCli
                 });
 
                 /// Recompile
+                Console.WriteLine("Recompiling the game data...");
+                Console.WriteLine();
                 File.Move(dataWinFilePath, Path.ChangeExtension(dataWinFilePath, ".backup.win"), true);
                 FileStream writeStream = new(dataWinFilePath, FileMode.Create);
                 UndertaleIO.Write(writeStream, gmsData);
@@ -563,18 +608,20 @@ namespace GMShmoothCli
 
                 if (deleteOriginalGameFile)
                 {
+                    Console.WriteLine("Deleting the game's original .exe file...");
+                    Console.WriteLine();
                     File.Delete(gameFilePath);
                 }
 
-                Console.WriteLine("GMShmooth has been applied successfully.");
-                Console.WriteLine("You can close this window now, enjoy!");
+                Console.WriteLine("GMShmooth has applied Shmoothing successfully.");
+                Console.WriteLine("You can close this window now, enjoy your new 20/20 vision!");
                 Console.ReadKey();
             }
             catch (Exception ex)
             {
-                Console.WriteLine("An unexpected error occurred!");
-                Console.WriteLine(ex.GetType() + ":");
-                Console.WriteLine(ex.Message);
+                Console.Error.WriteLine("An error occurred!");
+                Console.Error.WriteLine(ex.GetType() + ":");
+                Console.Error.WriteLine(ex.Message);
                 Console.ReadKey();
             }
         }
