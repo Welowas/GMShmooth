@@ -27,6 +27,7 @@ namespace GMShmoothCli
 
                 Console.WriteLine("Fetching data.win file...");
                 Console.WriteLine();
+
                 string gameFilePath = args[0];
                 string gameFileExtension = Path.GetExtension(gameFilePath).ToLower();
                 bool deleteOriginalGameFile = false;
@@ -90,6 +91,7 @@ namespace GMShmoothCli
                 Console.WriteLine("data.win file has been located.");
                 Console.WriteLine("Decompiling data.win file...");
                 Console.WriteLine();
+
                 FileStream readStream = new(dataWinFilePath, FileMode.Open, FileAccess.Read);
                 UndertaleData gmsData = UndertaleIO.Read(readStream);
                 readStream.Dispose();
@@ -97,6 +99,7 @@ namespace GMShmoothCli
                 /// Shaders
                 Console.WriteLine("Injecting Plasma's pixel upscaling shader...");
                 Console.WriteLine();
+
                 IList<UndertaleShader> gmsShaders = gmsData.Shaders;
                 if (gmsShaders.ByName("__SHMOOTH_shPlasma") is not null)
                 {
@@ -328,6 +331,7 @@ namespace GMShmoothCli
                 /// Scripts and Functions
                 Console.WriteLine("Rewiring instance deactivation functions...");
                 Console.WriteLine();
+
                 CodeImportGroup cig = new(gmsData);
                 foreach (string functionName in new string[] { "instance_deactivate_all", "instance_deactivate_object", "instance_deactivate_region", "instance_deactivate_layer" })
                 {
@@ -336,21 +340,21 @@ namespace GMShmoothCli
                     {
                         UndertaleCode gmsCode = UndertaleCode.CreateEmptyEntry(gmsData, $"gml_Script_{functionName}");
                         cig.QueueAppend(gmsCode, $$"""
-                        if (argument_count > 6){
-                            {{functionName}}(argument[0], argument[1], argument[2], argument[3], argument[4], argument[5], argument[6]);
-                        }
-                        else if (argument_count == 6){
-                            {{functionName}}(argument[0], argument[1], argument[2], argument[3], argument[4], argument[5]);
-                        }
-                        else if (argument_count > 1){
-                            {{functionName}}(argument[0], argument[1]);
-                        }
-                        else{
-                            {{functionName}}(argument[0]);
-                        }
-                        instance_activate_object(__SHMOOTH_objImperishable);
+                            if (argument_count > 6){
+                                {{functionName}}(argument[0], argument[1], argument[2], argument[3], argument[4], argument[5], argument[6]);
+                            }
+                            else if (argument_count == 6){
+                                {{functionName}}(argument[0], argument[1], argument[2], argument[3], argument[4], argument[5]);
+                            }
+                            else if (argument_count > 1){
+                                {{functionName}}(argument[0], argument[1]);
+                            }
+                            else{
+                                {{functionName}}(argument[0]);
+                            }
+                            instance_activate_object(__SHMOOTH_objImperishable);
 
-                        """);
+                            """);
 
                         gmsData.Scripts.Add(new()
                         {
@@ -365,9 +369,11 @@ namespace GMShmoothCli
                 Console.WriteLine("Injecting an imperishable shader control object...");
                 Console.WriteLine("(Let's name it ISCO because it sounds epic.)");
                 Console.WriteLine();
+
                 UndertaleGameObject gmsImperishableObject = new()
                 {
                     Name = gmsStrings.MakeString("__SHMOOTH_objImperishable"),
+                    Depth = int.MinValue,
                     Persistent = true
                 };
                 gmsData.GameObjects.Add(gmsImperishableObject);
@@ -380,9 +386,18 @@ namespace GMShmoothCli
 
                         """;
 
+                    cig.QueueAppend(gmsImperishableObject.EventHandlerFor(EventType.Create, gmsData), """
+                        __SHMOOTH_isDuplicate = false;
+                        __SHMOOTH_uTexelsPerPixel = shader_get_uniform(__SHMOOTH_shPlasma, "u_texelsPerPixel");
+                        __SHMOOTH_uvResolution = shader_get_uniform(__SHMOOTH_shPlasma, "uv_resolution");
+                        __SHMOOTH_ufResolution = shader_get_uniform(__SHMOOTH_shPlasma, "uf_resolution");
+
+                        """);
                     cig.QueueAppend(gmsImperishableObject.EventHandlerFor(EventType.Destroy, gmsData), """
                         if (!__SHMOOTH_isDuplicate){
-                            instance_create(0, 0, object_index);
+                            with instance_create(0, 0, object_index){
+                                depth = other.depth;
+                            }
                         }
 
                         """);
@@ -391,14 +406,13 @@ namespace GMShmoothCli
                         var __SHMOOTH_windowHeight = window_get_height();
                         var __SHMOOTH_applicationWidth = surface_get_width(application_surface);
                         var __SHMOOTH_applicationHeight = surface_get_height(application_surface);
+                        var __SHMOOTH_applicationPos = application_get_position();
 
-                        var __SHMOOTH_aspectRatio = __SHMOOTH_windowWidth / __SHMOOTH_windowHeight;
-                        var __SHMOOTH_aspectRatioRatio = __SHMOOTH_aspectRatio / (__SHMOOTH_applicationWidth/__SHMOOTH_applicationHeight);
-
+                        var __SHMOOTH_aspectRatioRatio = __SHMOOTH_windowWidth / __SHMOOTH_windowHeight / (__SHMOOTH_applicationWidth / __SHMOOTH_applicationHeight);
                         var __SHMOOTH_pixelScalingW = __SHMOOTH_aspectRatioRatio < 1 && __SHMOOTH_windowWidth mod __SHMOOTH_applicationWidth != 0;
                         var __SHMOOTH_pixelScalingH = __SHMOOTH_aspectRatioRatio > 1 && __SHMOOTH_windowHeight mod __SHMOOTH_applicationHeight != 0;
                         var __SHMOOTH_pixelScalingWH = __SHMOOTH_windowWidth mod __SHMOOTH_applicationWidth != 0 && __SHMOOTH_windowHeight mod __SHMOOTH_applicationHeight != 0;
-                        var __SHMOOTH_pixelScaling = __SHMOOTH_pixelScalingW || __SHMOOTH_pixelScalingH || __SHMOOTH_pixelScalingWH;
+                        var __SHMOOTH_pixelScaling = !window_has_focus() || __SHMOOTH_pixelScalingW || __SHMOOTH_pixelScalingH || __SHMOOTH_pixelScalingWH;
 
                         texture_set_repeat(false);
                         draw_enable_alphablend(false);
@@ -406,24 +420,12 @@ namespace GMShmoothCli
                         if (__SHMOOTH_pixelScaling){
                             texture_set_interpolation(true);
                             shader_set(__SHMOOTH_shPlasma);
-                        }  
+                        }
 
-                        if (__SHMOOTH_aspectRatioRatio < 1){
-                            var __SHMOOTH_canvasHeight = __SHMOOTH_windowWidth*__SHMOOTH_applicationHeight/__SHMOOTH_applicationWidth;
-                            var __SHMOOTH_vertOutPixels = (__SHMOOTH_windowHeight - __SHMOOTH_canvasHeight) / 2;
-                            shader_set_uniform_f(__SHMOOTH_uTexelsPerPixel, __SHMOOTH_applicationWidth/__SHMOOTH_windowWidth, __SHMOOTH_applicationHeight/__SHMOOTH_canvasHeight);
-                            shader_set_uniform_f(__SHMOOTH_uvResolution, __SHMOOTH_applicationWidth, __SHMOOTH_applicationHeight);
-                            shader_set_uniform_f(__SHMOOTH_ufResolution, __SHMOOTH_applicationWidth, __SHMOOTH_applicationHeight);
-                            draw_surface_stretched(application_surface, 0, __SHMOOTH_vertOutPixels, __SHMOOTH_windowWidth, __SHMOOTH_canvasHeight);
-                        }
-                        else{
-                            var __SHMOOTH_canvasWidth = __SHMOOTH_windowHeight*__SHMOOTH_applicationWidth/__SHMOOTH_applicationHeight;
-                            var __SHMOOTH_horOutPixels = (__SHMOOTH_windowWidth - __SHMOOTH_canvasWidth) / 2;
-                            shader_set_uniform_f(__SHMOOTH_uTexelsPerPixel, __SHMOOTH_applicationWidth/__SHMOOTH_canvasWidth, __SHMOOTH_applicationHeight/__SHMOOTH_windowHeight);
-                            shader_set_uniform_f(__SHMOOTH_uvResolution, __SHMOOTH_applicationWidth, __SHMOOTH_applicationHeight);
-                            shader_set_uniform_f(__SHMOOTH_ufResolution, __SHMOOTH_applicationWidth, __SHMOOTH_applicationHeight);
-                            draw_surface_stretched(application_surface, __SHMOOTH_horOutPixels, 0, __SHMOOTH_canvasWidth, __SHMOOTH_windowHeight);
-                        }
+                        shader_set_uniform_f(__SHMOOTH_uTexelsPerPixel, __SHMOOTH_applicationWidth / (__SHMOOTH_applicationPos[2] - __SHMOOTH_applicationPos[0]), __SHMOOTH_applicationHeight / (__SHMOOTH_applicationPos[3] - __SHMOOTH_applicationPos[1]));
+                        shader_set_uniform_f(__SHMOOTH_uvResolution, __SHMOOTH_applicationWidth, __SHMOOTH_applicationHeight);
+                        shader_set_uniform_f(__SHMOOTH_ufResolution, __SHMOOTH_applicationWidth, __SHMOOTH_applicationHeight);
+                        draw_surface_stretched(application_surface, __SHMOOTH_applicationPos[0], __SHMOOTH_applicationPos[1], __SHMOOTH_applicationPos[2] - __SHMOOTH_applicationPos[0], __SHMOOTH_applicationPos[3] - __SHMOOTH_applicationPos[1]);
 
                         if (__SHMOOTH_pixelScaling){
                             shader_reset();
@@ -441,127 +443,55 @@ namespace GMShmoothCli
 
                         """;
 
+                    cig.QueueAppend(gmsImperishableObject.EventHandlerFor(EventType.Create, gmsData), """
+                        __SHMOOTH_isDuplicate = false;
+                        __SHMOOTH_uTexelsPerPixel = shader_get_uniform(__SHMOOTH_shPlasma, "u_texelsPerPixel");
+                        __SHMOOTH_uvResolution = shader_get_uniform(__SHMOOTH_shPlasma, "uv_resolution");
+                        __SHMOOTH_ufResolution = shader_get_uniform(__SHMOOTH_shPlasma, "uf_resolution");
+                        layer_force_draw_depth(true, 0);
+
+                        """);
                     cig.QueueAppend(gmsImperishableObject.EventHandlerFor(EventType.Destroy, gmsData), """
                         if (!__SHMOOTH_isDuplicate){
-                            instance_create_depth(0, 0, 0, object_index);
+                            instance_create_depth(0, 0, depth, object_index);
                         }
 
                         """);
-                    string gms2PostDraw;
-                    if (gmsData.IsVersionAtLeast(2, 3))
-                    {
-                        gms2PostDraw = """
-                            var __SHMOOTH_windowWidth = window_get_width();
-                            var __SHMOOTH_windowHeight = window_get_height();
-                            var __SHMOOTH_applicationWidth = surface_get_width(application_surface);
-                            var __SHMOOTH_applicationHeight = surface_get_height(application_surface);
+                    cig.QueueAppend(gmsImperishableObject.EventHandlerFor(EventType.Draw, EventSubtypeDraw.PostDraw, gmsData), """
+                        var __SHMOOTH_windowWidth = window_get_width();
+                        var __SHMOOTH_windowHeight = window_get_height();
+                        var __SHMOOTH_applicationWidth = surface_get_width(application_surface);
+                        var __SHMOOTH_applicationHeight = surface_get_height(application_surface);
+                        var __SHMOOTH_applicationPos = application_get_position();
                         
-                            var __SHMOOTH_aspectRatio = __SHMOOTH_windowWidth / __SHMOOTH_windowHeight;
-                            var __SHMOOTH_aspectRatioRatio = __SHMOOTH_aspectRatio / (__SHMOOTH_applicationWidth/__SHMOOTH_applicationHeight);
+                        var __SHMOOTH_aspectRatioRatio = __SHMOOTH_windowWidth / __SHMOOTH_windowHeight / (__SHMOOTH_applicationWidth / __SHMOOTH_applicationHeight);
+                        var __SHMOOTH_pixelScalingW = __SHMOOTH_aspectRatioRatio < 1 && __SHMOOTH_windowWidth mod __SHMOOTH_applicationWidth != 0;
+                        var __SHMOOTH_pixelScalingH = __SHMOOTH_aspectRatioRatio > 1 && __SHMOOTH_windowHeight mod __SHMOOTH_applicationHeight != 0;
+                        var __SHMOOTH_pixelScalingWH = __SHMOOTH_windowWidth mod __SHMOOTH_applicationWidth != 0 && __SHMOOTH_windowHeight mod __SHMOOTH_applicationHeight != 0;
+                        var __SHMOOTH_pixelScaling = !window_has_focus() || __SHMOOTH_pixelScalingW || __SHMOOTH_pixelScalingH || __SHMOOTH_pixelScalingWH;
                         
-                            var __SHMOOTH_pixelScalingW = __SHMOOTH_aspectRatioRatio < 1 && __SHMOOTH_windowWidth mod __SHMOOTH_applicationWidth != 0;
-                            var __SHMOOTH_pixelScalingH = __SHMOOTH_aspectRatioRatio > 1 && __SHMOOTH_windowHeight mod __SHMOOTH_applicationHeight != 0;
-                            var __SHMOOTH_pixelScalingWH = __SHMOOTH_windowWidth mod __SHMOOTH_applicationWidth != 0 && __SHMOOTH_windowHeight mod __SHMOOTH_applicationHeight != 0;
-                            var __SHMOOTH_pixelScaling = __SHMOOTH_pixelScalingW || __SHMOOTH_pixelScalingH || __SHMOOTH_pixelScalingWH;
+                        gpu_set_texrepeat(false);
+                        gpu_set_blendenable(false);
                         
-                            gpu_set_texrepeat(false);
-                            gpu_set_blendenable(false);
+                        if (__SHMOOTH_pixelScaling){
+                            gpu_set_texfilter(true);
+                            shader_set(__SHMOOTH_shPlasma);
+                        }
                         
-                            if (__SHMOOTH_pixelScaling){
-                                gpu_set_texfilter(true);
-                                shader_set(__SHMOOTH_shPlasma);
-                            }  
+                        shader_set_uniform_f(__SHMOOTH_uTexelsPerPixel, __SHMOOTH_applicationWidth / (__SHMOOTH_applicationPos[2] - __SHMOOTH_applicationPos[0]), __SHMOOTH_applicationHeight / (__SHMOOTH_applicationPos[3] - __SHMOOTH_applicationPos[1]));
+                        shader_set_uniform_f(__SHMOOTH_uvResolution, __SHMOOTH_applicationWidth, __SHMOOTH_applicationHeight);
+                        shader_set_uniform_f(__SHMOOTH_ufResolution, __SHMOOTH_applicationWidth, __SHMOOTH_applicationHeight);
+                        draw_surface_stretched(application_surface, __SHMOOTH_applicationPos[0], __SHMOOTH_applicationPos[1], __SHMOOTH_applicationPos[2] - __SHMOOTH_applicationPos[0], __SHMOOTH_applicationPos[3] - __SHMOOTH_applicationPos[1]);
                         
-                            if (__SHMOOTH_aspectRatioRatio < 1){
-                                var __SHMOOTH_canvasHeight = __SHMOOTH_windowWidth*__SHMOOTH_applicationHeight/__SHMOOTH_applicationWidth;
-                                var __SHMOOTH_vertOutPixels = (__SHMOOTH_windowHeight - __SHMOOTH_canvasHeight) / 2;
-                                shader_set_uniform_f(__SHMOOTH_uTexelsPerPixel, __SHMOOTH_applicationWidth/__SHMOOTH_windowWidth, __SHMOOTH_applicationHeight/__SHMOOTH_canvasHeight);
-                                shader_set_uniform_f(__SHMOOTH_uvResolution, __SHMOOTH_applicationWidth, __SHMOOTH_applicationHeight);
-                                shader_set_uniform_f(__SHMOOTH_ufResolution, __SHMOOTH_applicationWidth, __SHMOOTH_applicationHeight);
-                                draw_surface_stretched(application_surface, 0, __SHMOOTH_vertOutPixels, __SHMOOTH_windowWidth, __SHMOOTH_canvasHeight);
-                            }
-                            else{
-                                var __SHMOOTH_canvasWidth = __SHMOOTH_windowHeight*__SHMOOTH_applicationWidth/__SHMOOTH_applicationHeight;
-                                var __SHMOOTH_horOutPixels = (__SHMOOTH_windowWidth - __SHMOOTH_canvasWidth) / 2;
-                                shader_set_uniform_f(__SHMOOTH_uTexelsPerPixel, __SHMOOTH_applicationWidth/__SHMOOTH_canvasWidth, __SHMOOTH_applicationHeight/__SHMOOTH_windowHeight);
-                                shader_set_uniform_f(__SHMOOTH_uvResolution, __SHMOOTH_applicationWidth, __SHMOOTH_applicationHeight);
-                                shader_set_uniform_f(__SHMOOTH_ufResolution, __SHMOOTH_applicationWidth, __SHMOOTH_applicationHeight);
-                                draw_surface_stretched(application_surface, __SHMOOTH_horOutPixels, 0, __SHMOOTH_canvasWidth, __SHMOOTH_windowHeight);
-                            }
+                        if (__SHMOOTH_pixelScaling){
+                            shader_reset();
+                            gpu_set_texfilter(false);
+                        }
                         
-                            if (__SHMOOTH_pixelScaling){
-                                shader_reset();
-                                gpu_set_texfilter(false);
-                            }
-                        
-                            gpu_set_blendenable(true);
+                        gpu_set_blendenable(true);
 
-                            """;
-                    }
-                    else
-                    {
-                        gms2PostDraw = """
-                            var __SHMOOTH_windowWidth = window_get_width();
-                            var __SHMOOTH_windowHeight = window_get_height();
-                            var __SHMOOTH_guiWidth = display_get_gui_width();
-                            var __SHMOOTH_guiHeight = display_get_gui_height();
-                            var __SHMOOTH_applicationWidth = surface_get_width(application_surface);
-                            var __SHMOOTH_applicationHeight = surface_get_height(application_surface);
-                        
-                            var __SHMOOTH_aspectRatio = __SHMOOTH_windowWidth / __SHMOOTH_windowHeight;
-                            var __SHMOOTH_aspectRatioRatio = __SHMOOTH_aspectRatio / (__SHMOOTH_applicationWidth/__SHMOOTH_applicationHeight);
-                        
-                            var __SHMOOTH_pixelScalingW = __SHMOOTH_aspectRatioRatio < 1 && __SHMOOTH_windowWidth mod __SHMOOTH_applicationWidth != 0;
-                            var __SHMOOTH_pixelScalingH = __SHMOOTH_aspectRatioRatio > 1 && __SHMOOTH_windowHeight mod __SHMOOTH_applicationHeight != 0;
-                            var __SHMOOTH_pixelScalingWH = __SHMOOTH_windowWidth mod __SHMOOTH_applicationWidth != 0 && __SHMOOTH_windowHeight mod __SHMOOTH_applicationHeight != 0;
-                            var __SHMOOTH_pixelScaling = __SHMOOTH_pixelScalingW || __SHMOOTH_pixelScalingH || __SHMOOTH_pixelScalingWH;
-                        
-                            gpu_set_texrepeat(false);
-                            gpu_set_blendenable(false);
-                        
-                            if (__SHMOOTH_pixelScaling){
-                                gpu_set_texfilter(true);
-                                shader_set(__SHMOOTH_shPlasma);
-                            }  
-                        
-                            if (__SHMOOTH_aspectRatioRatio < 1){
-                                var __SHMOOTH_canvasHeight = __SHMOOTH_windowWidth*__SHMOOTH_applicationHeight/__SHMOOTH_applicationWidth;
-                                var __SHMOOTH_canvasHeightStretched = __SHMOOTH_guiWidth*__SHMOOTH_applicationHeight/__SHMOOTH_applicationWidth;
-                                var __SHMOOTH_vertOutPixels = (__SHMOOTH_guiHeight - __SHMOOTH_canvasHeightStretched) / 2;
-                                shader_set_uniform_f(__SHMOOTH_uTexelsPerPixel, __SHMOOTH_applicationWidth/__SHMOOTH_windowWidth, __SHMOOTH_applicationHeight/__SHMOOTH_canvasHeight);
-                                shader_set_uniform_f(__SHMOOTH_uvResolution, __SHMOOTH_applicationWidth, __SHMOOTH_applicationHeight);
-                                shader_set_uniform_f(__SHMOOTH_ufResolution, __SHMOOTH_applicationWidth, __SHMOOTH_applicationHeight);
-                                draw_surface_stretched(application_surface, 0, __SHMOOTH_vertOutPixels, __SHMOOTH_guiWidth, __SHMOOTH_canvasHeightStretched);
-                            }
-                            else{
-                                var __SHMOOTH_canvasWidth = __SHMOOTH_windowHeight*__SHMOOTH_applicationWidth/__SHMOOTH_applicationHeight;
-                                var __SHMOOTH_canvasWidthStretched = __SHMOOTH_guiHeight*__SHMOOTH_applicationWidth/__SHMOOTH_applicationHeight;
-                                var __SHMOOTH_horOutPixels = (__SHMOOTH_guiWidth - __SHMOOTH_canvasWidthStretched) / 2;
-                                shader_set_uniform_f(__SHMOOTH_uTexelsPerPixel, __SHMOOTH_applicationWidth/__SHMOOTH_canvasWidth, __SHMOOTH_applicationHeight/__SHMOOTH_windowHeight);
-                                shader_set_uniform_f(__SHMOOTH_uvResolution, __SHMOOTH_applicationWidth, __SHMOOTH_applicationHeight);
-                                shader_set_uniform_f(__SHMOOTH_ufResolution, __SHMOOTH_applicationWidth, __SHMOOTH_applicationHeight);
-                                draw_surface_stretched(application_surface, __SHMOOTH_horOutPixels, 0, __SHMOOTH_canvasWidthStretched, __SHMOOTH_guiHeight);
-                            }
-                        
-                            if (__SHMOOTH_pixelScaling){
-                                shader_reset();
-                                gpu_set_texfilter(false);
-                            }
-                        
-                            gpu_set_blendenable(true);
-
-                            """;
-                    }
-
-                    cig.QueueAppend(gmsImperishableObject.EventHandlerFor(EventType.Draw, EventSubtypeDraw.PostDraw, gmsData), gms2PostDraw);
+                        """);
                 }
-                cig.QueueAppend(gmsImperishableObject.EventHandlerFor(EventType.Create, gmsData), """
-                    __SHMOOTH_isDuplicate = false;
-                    __SHMOOTH_uTexelsPerPixel = shader_get_uniform(__SHMOOTH_shPlasma, "u_texelsPerPixel");
-                    __SHMOOTH_uvResolution = shader_get_uniform(__SHMOOTH_shPlasma, "uv_resolution");
-                    __SHMOOTH_ufResolution = shader_get_uniform(__SHMOOTH_shPlasma, "uf_resolution");
-
-                    """);
                 cig.QueueAppend(gmsImperishableObject.EventHandlerFor(EventType.Other, EventSubtypeOther.RoomStart, gmsData), """
                     if (instance_number(object_index) > 1){
                         __SHMOOTH_isDuplicate = true;
@@ -584,7 +514,9 @@ namespace GMShmoothCli
                 /// Rooms
                 Console.WriteLine("Adding the ISCO to the first room...");
                 Console.WriteLine();
-                IList<UndertaleRoom> gmsRooms = gmsData.Rooms;
+
+                UndertaleGeneralInfo gmsInfo = gmsData.GeneralInfo;
+                UndertaleSimpleResourcesList<UndertaleRoom, UndertaleChunkROOM> gmsRooms = gmsInfo.RoomOrder;
                 if (gmsRooms.Count < 1)
                 {
                     Console.Error.WriteLine("No rooms found in the game.");
@@ -592,15 +524,16 @@ namespace GMShmoothCli
                     return;
                 }
 
-                gmsRooms[0].GameObjects.Add(new()
+                gmsRooms[0].Resource.GameObjects.Add(new()
                 {
                     ObjectDefinition = gmsImperishableObject,
-                    InstanceID = gmsData.GeneralInfo.LastObj++
+                    InstanceID = gmsInfo.LastObj++
                 });
 
                 /// Recompile
                 Console.WriteLine("Recompiling the game data...");
                 Console.WriteLine();
+
                 File.Move(dataWinFilePath, Path.ChangeExtension(dataWinFilePath, ".backup.win"), true);
                 FileStream writeStream = new(dataWinFilePath, FileMode.Create);
                 UndertaleIO.Write(writeStream, gmsData);
@@ -610,6 +543,7 @@ namespace GMShmoothCli
                 {
                     Console.WriteLine("Deleting the game's original .exe file...");
                     Console.WriteLine();
+
                     File.Delete(gameFilePath);
                 }
 
