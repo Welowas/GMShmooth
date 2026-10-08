@@ -27,6 +27,7 @@ namespace GMShmoothGui
         private readonly List<double> _rectanglesAngle;
         private readonly uint _rectangleSpawnDelay;
         private uint _currentRectangleSpawnDelay;
+        private bool _reverseButtonBackgroundColor;
 
         public MainWindow()
         {
@@ -96,13 +97,22 @@ namespace GMShmoothGui
                 {
                     _currentRectangleColor = 0;
                 }
-
+                
+                _reverseButtonBackgroundColor = !_reverseButtonBackgroundColor;
                 _currentRectangleSpawnDelay = _rectangleSpawnDelay;
             }
             else
             {
                 _currentRectangleSpawnDelay--;
             }
+
+            byte colorTimer = (byte)((double)_currentRectangleSpawnDelay / _rectangleSpawnDelay * byte.MaxValue);
+            byte colorValue = _reverseButtonBackgroundColor ? (byte)(byte.MaxValue - colorTimer) : colorTimer;
+            _chooseFileButton.Background = new LinearGradientBrush(
+                Color.FromArgb(byte.MaxValue / 4, colorValue, colorValue, colorValue),
+                Color.FromArgb(byte.MaxValue / 4, (byte)(byte.MaxValue - colorValue), (byte)(byte.MaxValue - colorValue), (byte)(byte.MaxValue - colorValue)),
+                180 * (double)_currentRectangleSpawnDelay / _rectangleSpawnDelay + (_reverseButtonBackgroundColor ? 180 : 0)
+            );
 
             for (int i = 0; i < _rectangles.Count; i++)
             {

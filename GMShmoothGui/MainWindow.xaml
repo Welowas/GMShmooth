@@ -11,13 +11,15 @@
         <Canvas Name="_bgCanvas" x:FieldModifier="private">
             <Button
                 Name="_chooseFileButton"
-                Canvas.Left="288" Canvas.Top="137"
-                x:FieldModifier="private" Click="ChooseFileButton_Click" Content="Button"/>
+                Canvas.Left="154" Canvas.Top="61"
+                Width="492" Height="254"
+                HorizontalAlignment="Left" VerticalAlignment="Top"
+                x:FieldModifier="private" Click="ChooseFileButton_Click" Content="Choose game(s) to Shmooth..."/>
             <Button
                 Name="_muteButton"
                 Canvas.Right="10" Canvas.Bottom="10"
                 HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                x:FieldModifier="private" Click="MuteButton_Click" Content="🎵"/>
+                x:FieldModifier="private" Click="MuteButton_Click" Content="🎵" FontSize="24"/>
             <Line
                 Name="_muteLine"
                 Canvas.Right="12" Canvas.Bottom="12"
